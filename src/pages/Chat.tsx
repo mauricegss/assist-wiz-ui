@@ -3,48 +3,46 @@ import ChatMessage from "@/components/ChatMessage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Send } from "lucide-react";
+import { Send, Settings, UserCheck, MessageSquareWarning, BotMessageSquare } from "lucide-react"; // Importar ícones extras
 
-// Interface original mantida
 interface Message {
-  id: string; // Adicionado ID para key do React
+  id: string;
   role: "user" | "assistant";
   content: string;
-  timestamp: string; // Mantido como string HH:MM
+  timestamp: string; // Formato HH:MM
 }
 
+// Define o tipo para os nomes dos agentes que correspondem aos endpoints
+type AgentName = "atendimento" | "diagnostico" | "escalonamento" | "feedback";
+
 const Chat = () => {
-  // Estado inicial como no seu original, mas com ID
   const [messages, setMessages] = useState<Message[]>([
     {
       id: `assistant-${Date.now()}`,
       role: "assistant",
       content: "Olá! Sou o assistente de atendimento. Como posso ajudar você hoje?",
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), // Timestamp dinâmico inicial
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
-  // Renomeado para clareza
   const [inputValue, setInputValue] = useState("");
-  // Estado para indicar carregamento da resposta do bot
   const [isLoading, setIsLoading] = useState(false);
-  // Estado para ID da sessão
   const [sessionId, setSessionId] = useState<string | null>(null);
-
-  // Refs para input e área de scroll
-  const scrollAreaRef = useRef<HTMLDivElement>(null); // Ref para a div rolável
-  const inputRef = useRef<HTMLInputElement>(null);    // Ref para o input
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Gera ID de sessão ao montar
   useEffect(() => {
     if (!sessionId) {
-      setSessionId(`session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
+      const generatedSessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      setSessionId(generatedSessionId);
+      console.log("Session ID gerado:", generatedSessionId); // Para depuração
     }
   }, [sessionId]);
 
-  // Função para adicionar mensagem (adaptada para ID e timestamp string)
+  // Função para adicionar mensagem
   const addMessage = (role: 'user' | 'assistant', content: string) => {
     const now = new Date();
-    const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); // Formato HH:MM
+    const timestamp = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const newMessage: Message = {
       id: `${role}-${Date.now()}-${Math.random()}`,
       role,
@@ -54,10 +52,13 @@ const Chat = () => {
     setMessages((prevMessages) => [...prevMessages, newMessage]);
   };
 
-  // Função para rolar para o fim (usa a ref na div correta)
+  // Função para rolar para o fim
   const scrollToBottom = () => {
     if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+      // Usar scrollIntoView na última mensagem pode ser mais robusto
+      scrollAreaRef.current.lastElementChild?.scrollIntoView({ behavior: "smooth" });
+      // Ou manter o scrollTop se preferir:
+      // scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
     }
   };
 
@@ -65,109 +66,166 @@ const Chat = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
       scrollToBottom();
-    }, 100); // Pequeno delay
+    }, 100); // Pequeno delay para garantir renderização
     return () => clearTimeout(timer);
   }, [messages]);
 
+  // Função genérica para chamar API do agente
+  const callApi = async (agentName: AgentName, messageContent: string) => {
+    if (!messageContent || isLoading || !sessionId) {
+        console.warn("Chamada de API bloqueada:", { messageContent, isLoading, sessionId });
+        if (!sessionId) addMessage('assistant', "Erro: ID da sessão não está definido.");
+        return;
+    };
 
-  // Função principal para enviar mensagem ao backend
-  const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
-    if (event) event.preventDefault();
-    const userMessage = inputValue.trim();
+    setIsLoading(true);
+    console.log(`Chamando agente: ${agentName} com session_id: ${sessionId}`); // Log
 
-    if (!userMessage || isLoading) return;
+    // Constrói o histórico da conversa para agentes que precisam dele
+    const chatHistory = messages.map(msg => `${msg.role === 'user' ? 'Usuário' : 'Assistente'}: ${msg.content}`).join('\n');
+    // Para atendimento, só a última msg. Para outros, histórico + última msg/pedido.
+    const messageToSend = agentName === 'atendimento'
+        ? messageContent
+        : `Histórico:\n${chatHistory}\n\nProblema/Pedido Atual: ${messageContent}`;
 
-    addMessage('user', userMessage); // Adiciona a msg do usuário imediatamente
-    setInputValue(''); // Limpa input
-    setIsLoading(true); // Mostra indicador de carregamento
+    const endpoint = `/api/chat/${agentName}`; // Endpoint dinâmico
 
     try {
-      const response = await fetch('http://localhost:8000/api/atendimento', {
+      const response = await fetch(`http://localhost:8000${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: userMessage,
+          message: messageToSend,
           session_id: sessionId,
         }),
       });
 
       if (!response.ok) {
-        let errorMsg = `HTTP error! status: ${response.status}`;
-        try { const errorData = await response.json(); errorMsg = errorData.error || errorMsg; } catch (e) {/* ignorar */}
+        let errorMsg = `Erro HTTP! status: ${response.status}`;
+        try {
+            const errorData = await response.json();
+            errorMsg = errorData.detail || JSON.stringify(errorData) || errorMsg; // Tenta pegar 'detail' do FastAPI
+        } catch (e) { /* ignorar erro no parsing do erro */ }
         throw new Error(errorMsg);
       }
 
       const data = await response.json();
       if (data.response) {
-        addMessage('assistant', data.response); // Adiciona resposta do bot
+        addMessage('assistant', data.response);
       } else {
-        addMessage('assistant', 'Desculpe, não recebi uma resposta válida.');
+        addMessage('assistant', 'Desculpe, não recebi uma resposta válida do servidor.');
       }
     } catch (error) {
-      console.error('Erro ao enviar mensagem:', error);
+      console.error(`Erro ao chamar ${endpoint}:`, error);
       const errorMsg = error instanceof Error ? error.message : String(error);
-      addMessage('assistant', `Desculpe, erro ao conectar: (${errorMsg})`);
+      addMessage('assistant', `Desculpe, ocorreu um erro ao conectar ao agente "${agentName}". (${errorMsg})`);
     } finally {
-      setIsLoading(false); // Esconde indicador de carregamento
-      inputRef.current?.focus(); // Foca no input novamente
+      setIsLoading(false);
+      // Focar no input apenas se não foi uma ação de botão que limpou o input
+      if (inputRef.current?.value === "") {
+         inputRef.current?.focus();
+      }
     }
   };
 
-  // Handler para tecla Enter no Input (substitui onKeyPress)
+  // Submit do formulário (envio de mensagem normal)
+  const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
+    if (event) event.preventDefault();
+    const userMessage = inputValue.trim();
+    if (!userMessage || isLoading) return;
+
+    addMessage('user', userMessage);
+    setInputValue(''); // Limpa input
+    await callApi('atendimento', userMessage); // Chama o atendimento inicial por padrão
+  };
+
+  // Função para chamar agentes específicos via botões
+  const handleAgentAction = async (agentName: AgentName) => {
+      // Pega a última mensagem do usuário OU o texto no input como contexto principal
+      const lastUserMessage = messages.slice().reverse().find(msg => msg.role === 'user');
+      const contextMessage = inputValue.trim() || lastUserMessage?.content || "Por favor, analise a situação e continue.";
+
+      // Adiciona uma mensagem indicando a ação, se não houver input novo e houver msg anterior
+      if (!inputValue.trim() && lastUserMessage) {
+         addMessage('user', `(Solicitando ${agentName} sobre: "${lastUserMessage.content}")`);
+      }
+      // Se houver texto no input, usa ele e indica a ação
+      else if (inputValue.trim()) {
+         addMessage('user', inputValue.trim() + ` (Solicitando ${agentName})`);
+      }
+      // Se não houver input nem mensagem anterior (pouco provável, mas seguro)
+      else {
+         addMessage('user', `(Solicitando ${agentName})`);
+      }
+
+      setInputValue(''); // Limpa input após confirmar a ação
+      await callApi(agentName, contextMessage); // Chama o agente específico
+  };
+
+  // Handler para tecla Enter no Input
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && !isLoading) { // Previne submit duplo com isLoading
       event.preventDefault();
-      handleSubmit(); // Chama a função de envio
+      handleSubmit(); // Chama a função de envio padrão (atendimento)
     }
   };
 
-
-  // JSX Original com modificações para usar estados/handlers
   return (
-    // Mantém seu container principal
     <div className="min-h-screen bg-gradient-subtle flex items-center justify-center p-4">
-      {/* Mantém seu Card principal */}
-      <Card className="w-full max-w-4xl h-[80vh] flex flex-col shadow-lg">
-        {/* Mantém seu Header */}
+      <Card className="w-full max-w-4xl h-[calc(100vh-4rem)] flex flex-col shadow-lg border border-border">
+        {/* Header */}
         <div className="border-b border-border px-6 py-4">
           <h2 className="text-xl font-semibold text-foreground">Chat de Atendimento</h2>
-          <p className="text-sm text-muted-foreground">Powered by SupportAI</p>
+          <p className="text-sm text-muted-foreground">ID da Sessão: {sessionId || "Gerando..."}</p>
         </div>
 
-        {/* Área de Mensagens - Adiciona a Ref aqui */}
-        <div ref={scrollAreaRef} className="flex-1 overflow-y-auto p-6">
-          {/* Mapeia o estado 'messages' */}
+        {/* Área de Mensagens */}
+        <div ref={scrollAreaRef} className="flex-1 overflow-y-auto p-6 space-y-4">
           {messages.map((msg) => (
-            // Usa o ID como key e passa props corretas
             <ChatMessage key={msg.id} role={msg.role} content={msg.content} timestamp={msg.timestamp} />
           ))}
-          {/* Indicador de Loading - Usa ChatMessage */}
+          {/* Indicador de Loading */}
           {isLoading && (
              <ChatMessage role="assistant" content="..." timestamp={new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} />
           )}
         </div>
 
-        {/* Área de Input - Usa form para submit e handlers corretos */}
+        {/* Área de Ações */}
+        <div className="border-t border-border p-2 flex flex-wrap justify-start gap-2 bg-background/50">
+             <Button variant="outline" size="sm" onClick={() => handleAgentAction('atendimento')} disabled={isLoading} title="Chamar Atendimento Inicial (padrão ao enviar)">
+                <BotMessageSquare className="h-4 w-4 mr-1" /> Atendimento
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleAgentAction('diagnostico')} disabled={isLoading} title="Solicitar Diagnóstico Técnico">
+                <Settings className="h-4 w-4 mr-1" /> Diagnóstico
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleAgentAction('escalonamento')} disabled={isLoading} title="Escalonar para Atendente Humano">
+                <MessageSquareWarning className="h-4 w-4 mr-1" /> Escalonar
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleAgentAction('feedback')} disabled={isLoading} title="Finalizar e dar Feedback">
+                <UserCheck className="h-4 w-4 mr-1" /> Feedback
+            </Button>
+        </div>
+
+        {/* Área de Input */}
         <div className="border-t border-border p-4">
-          {/* Adiciona <form> para semântica e submit */}
           <form onSubmit={handleSubmit} className="flex gap-2">
             <Input
-              ref={inputRef} // Adiciona ref ao input
-              value={inputValue} // Usa estado inputValue
-              onChange={(e) => setInputValue(e.target.value)} // Atualiza estado
-              onKeyDown={handleKeyDown} // Usa onKeyDown para Enter
-              placeholder="Digite sua mensagem..."
+              ref={inputRef}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Digite sua mensagem ou use uma ação acima..."
               className="flex-1"
-              disabled={isLoading} // Desabilita enquanto carrega
+              disabled={isLoading}
               autoComplete="off"
             />
             <Button
-              type="submit" // Define como submit do form
-              // onClick não é mais necessário aqui, o form cuida disso
+              type="submit"
               className="bg-primary hover:bg-primary/90"
-              disabled={isLoading || !inputValue.trim()} // Desabilita se carregando ou vazio
+              disabled={isLoading || (!inputValue.trim() && messages.length <= 1)} // Desabilita se carregando ou vazio E sem histórico
+              title="Enviar mensagem para Atendimento Inicial"
             >
               <Send className="h-4 w-4" />
             </Button>

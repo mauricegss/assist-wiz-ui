@@ -82,7 +82,7 @@ const Chat = () => {
     setIsLoading(true); // Mostra indicador de carregamento
 
     try {
-      const response = await fetch('http://localhost:5001/chat', { // URL do backend
+      const response = await fetch('http://localhost:8000/api/atendimento', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -100,8 +100,8 @@ const Chat = () => {
       }
 
       const data = await response.json();
-      if (data.reply) {
-        addMessage('assistant', data.reply); // Adiciona resposta do bot
+      if (data.response) {
+        addMessage('assistant', data.response); // Adiciona resposta do bot
       } else {
         addMessage('assistant', 'Desculpe, não recebi uma resposta válida.');
       }

@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Home, MessageSquare, List, Settings, Bot } from "lucide-react";
+import { Home, MessageSquare, List, Settings, Bot, Users } from "lucide-react";
 
 const Sidebar = () => {
   const location = useLocation();
@@ -9,6 +9,7 @@ const Sidebar = () => {
     { to: "/", icon: Home, label: "Dashboard" },
     { to: "/chat", icon: MessageSquare, label: "Chat" },
     { to: "/tickets", icon: List, label: "Tickets" },
+    { to: "/agents", icon: Users, label: "Agentes Ativos" },
     { to: "/settings", icon: Settings, label: "Configurações" },
   ];
 

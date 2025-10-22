@@ -7,6 +7,7 @@ import Layout from "./pages/Layout";
 import Dashboard from "./pages/Dashboard";
 import Chat from "./pages/Chat";
 import Tickets from "./pages/Tickets";
+import ActiveAgents from "./pages/ActiveAgents";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
@@ -23,6 +24,7 @@ const App = () => (
             <Route index element={<Dashboard />} />
             <Route path="chat" element={<Chat />} />
             <Route path="tickets" element={<Tickets />} />
+            <Route path="agents" element={<ActiveAgents />} />
             <Route path="settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<NotFound />} />
